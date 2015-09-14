@@ -1,6 +1,7 @@
 package lastfm
 
 import org.apache.spark.rdd.RDD
+import lastfm.ListOps._
 
 object Transformations {
 
@@ -41,26 +42,11 @@ object Transformations {
      * @param maxTimestampDiff maximum time difference between two neighbouring events
      * @return track play events grouped in sessions
      */
-    def sessions(maxTimestampDiff: Long): RDD[Session] = {
-
-      def withinTimeFrame(a: TrackPlayEvent, b: TrackPlayEvent) = Math.abs(a.timestamp - b.timestamp) <= maxTimestampDiff
-
-      //Performs folding step taking sessions found so far and the next track play event
-      //either adding the event to the last session or creating a new session
-      def collectSessions(sessions: List[Session], currentEvent: TrackPlayEvent): List[Session] = sessions match {
-        case (previousEvent :: currentSessionTail) :: previousSessions if withinTimeFrame(currentEvent, previousEvent) =>
-          (currentEvent :: previousEvent :: currentSessionTail) :: previousSessions
-        case previousSessions => List(currentEvent) :: previousSessions
-      }
-
-      //Transforms a list of track play events of a single user to a list of sessions
-      //sorting events by timestamp and matching neighbouring events if they are within maxTimestampDiff
-      def userEventsToSessions(events: List[TrackPlayEvent]): List[Session] =
-        events.sortBy(-_.timestamp).foldLeft(List[Session]())(collectSessions)
-
+    def sessions(maxTimestampDiff: Long): RDD[Session] =
       trackPlayEvents
         .groupBy(_.userId)
-        .flatMap { case (_, userEvents) => userEventsToSessions(userEvents.toList) }
-    }
+        .values
+        .map(_.toList.sortBy(_.timestamp))
+        .flatMap(_.groupWhile((a, b) => Math.abs(a.timestamp - b.timestamp) <= maxTimestampDiff))
   }
 }
